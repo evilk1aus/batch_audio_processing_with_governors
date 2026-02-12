@@ -5,6 +5,8 @@ import pty
 import os
 
 import pprint
+import fcntl
+import psutil
 
 stats = {}
 count = 0
@@ -42,9 +44,22 @@ def parse_reading(json_result):
 
 		stats["sockets"][socket["id"]].append(socket)
 
+fcntl_flags = fcntl.fcntl(master, fcntl.F_GETFL)
+fcntl.fcntl(master, fcntl.F_SETFL, fcntl_flags | os.O_NONBLOCK)
+
+extract_and_augment_process = subprocess.Popen(["bash", "./extract_and_augment.sh"])
+
 while True:
+	if extract_and_augment_process.poll() is not None:
+		print("Extract and augment process exited with:", extract_and_augment_process.returncode)
+		proc.terminate()
+		break
+
 	try:
 		data = os.read(master, 8192)
+	except BlockingIOError:
+		time.sleep(0.1)
+		continue
 	except OSError:
 		break
 	data = data.decode()
@@ -55,7 +70,7 @@ while True:
 	if data.startswith(",{\"host\":{"):
 		if str_buff.startswith("{\"host\":{"):
 			json_result = json.loads(str_buff)
-			print(json.dumps(json_result, indent=2).replace("\n","\r\n"))
+			#print(json.dumps(json_result, indent=2).replace("\n","\r\n"))
 			parse_reading(json_result)
 
 			# Read frequencies
@@ -98,18 +113,38 @@ while True:
 				# temperature in celsius is in result[0]
 				stats["temperature"][result[0]].append(int(result[1]) / 1000) # to Celsius
 
-			print(stats["temperature"])
+			# and CPU usage too
+			usage_per_core = psutil.cpu_percent(interval=None, percpu=True)
+
+			if not "cpu_usage" in stats:
+				stats["cpu_usage"] = [[] for x in range(len(usage_per_core))]
+
+			for i, usage in enumerate(usage_per_core):
+				stats["cpu_usage"][i].append(usage)
+
+			#print(stats["cpu_usage"], end="\r\n")
+
+			#print(stats["temperature"])
 
 			count += 1
-		print("====================================\r")
+		#print("====================================\r")
 		str_buff = data[1:]
 	else:
 		str_buff += data
 
-print("Exit code:", proc.wait())
+print("scaphandre exit code:", proc.wait())
 
 stats["count"] = count
 
-# Save stats to json file
+print("Saving to stats.json...")
+
+import datetime
+
+# Save stats to json files
+with open(f"stats-{datetime.datetime.now().isoformat().replace(":", "_")}.json", "w") as f:
+	f.write(json.dumps(stats, indent=2))
+
 with open("stats.json", "w") as f:
 	f.write(json.dumps(stats, indent=2))
+
+print("stats.json saved!")

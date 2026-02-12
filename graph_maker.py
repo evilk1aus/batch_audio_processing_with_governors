@@ -59,3 +59,16 @@ plt.title("CPU Temperature over Time")
 plt.grid(True)
 
 plt.show()
+
+
+for core_num, core_usages in enumerate(stats["cpu_usage"]):
+    plt.plot(x, core_usages, label=f"Core {int(core_num)+1}", marker='o', linestyle='-', color=colors[int(core_num) % len(colors)])
+
+plt.xlabel("Time (s)")
+plt.ylabel("Usage %")
+plt.title("cpu_usage over Time")
+
+plt.legend()
+plt.grid(True)
+
+plt.show()
